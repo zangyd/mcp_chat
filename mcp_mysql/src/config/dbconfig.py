@@ -30,7 +30,7 @@ def get_db_config():
         "port": 3306,
         "user": "root",
         "password": "Autotest@2024",
-        "database": "optimization_db",
+        "database": "mcp_chat",
         "role": "admin"
     }
 
@@ -52,7 +52,7 @@ ROLE_PERMISSIONS = {
     "readonly": ["SELECT", "SHOW", "DESCRIBE", "EXPLAIN"],  # 只读权限
     "writer": ["SELECT", "SHOW", "DESCRIBE", "EXPLAIN", "INSERT", "UPDATE", "DELETE"],  # 读写权限
     "admin": ["SELECT", "SHOW", "DESCRIBE", "EXPLAIN", "INSERT", "UPDATE", "DELETE", 
-             "CREATE", "ALTER", "DROP", "TRUNCATE"]  # 管理员权限
+             "CREATE", "ALTER", "DROP", "TRUNCATE", "CREATE VIEW", "SHOW VIEW", "CREATE PROCEDURE", "ALTER PROCEDURE", "DROP PROCEDURE", "CREATE EVENT", "ALTER EVENT", "DROP EVENT", "CREATE TRIGGER", "ALTER TRIGGER", "DROP TRIGGER", "CREATE USER", "ALTER USER", "DROP USER", "CREATE ROLE", "ALTER ROLE", "DROP ROLE", "GRANT", "REVOKE", "LOCK TABLES", "UNLOCK TABLES", "CREATE DATABASE", "ALTER DATABASE", "DROP DATABASE", "CREATE TABLE", "ALTER TABLE", "DROP TABLE", "CREATE INDEX", "ALTER INDEX", "DROP INDEX", "CREATE VIEW", "ALTER VIEW", "DROP VIEW", "CREATE USER", "ALTER USER", "DROP USER", "CREATE ROLE", "ALTER ROLE", "DROP ROLE", "GRANT", "REVOKE","USE"]  # 管理员权限
 }
 
 def get_role_permissions(role: str) -> list:

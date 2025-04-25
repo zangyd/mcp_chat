@@ -1,156 +1,117 @@
 import { defineStore } from 'pinia'
-import type { ChatSession, Message, MCPTool } from '@/types/chat'
-import { chatApi } from '@/api/chat'
+import { ref } from 'vue'
+import type { Session, Message } from '@/types/chat'
+import { ElMessage } from 'element-plus'
+import { createSession, getSessions, getMessages, sendMessage } from '@/api/chat'
 
-export const useChatStore = defineStore('chat', {
-  state: () => ({
-    sessions: [] as ChatSession[],
-    currentSessionId: null as string | null,
-    availableTools: [] as MCPTool[],
-    loading: false
-  }),
+export const useChatStore = defineStore('chat', () => {
+  // 状态
+  const sessions = ref<Session[]>([])
+  const currentSession = ref<Session | null>(null)
+  const messages = ref<Message[]>([])
+  const loading = ref(false)
+  const error = ref('')
 
-  getters: {
-    currentSession: (state) => 
-      state.sessions.find(s => s.id === state.currentSessionId)
-  },
-
-  actions: {
-    async initStore() {
-      try {
-        const [sessions, tools] = await Promise.all([
-          chatApi.getSessions(),
-          chatApi.getAvailableTools()
-        ])
-        this.sessions = sessions
-        this.availableTools = tools
-      } catch (error) {
-        console.error('Failed to initialize store:', error)
+  // 方法
+  const loadSessions = async () => {
+    try {
+      loading.value = true
+      const response = await getSessions()
+      sessions.value = response.data
+      if (sessions.value.length > 0) {
+        await setCurrentSession(sessions.value[0])
       }
-    },
-
-    setCurrentSession(id: string) {
-      this.currentSessionId = id
-    },
-
-    async createSession() {
-      try {
-        const newSession = await chatApi.createSession()
-        this.sessions.push(newSession)
-        this.currentSessionId = newSession.id
-      } catch (error) {
-        console.error('Failed to create session:', error)
-        throw error
-      }
-    },
-
-    async renameSession(id: string, title: string) {
-      try {
-        await chatApi.updateSession(id, { title })
-        const session = this.sessions.find(s => s.id === id)
-        if (session) {
-          session.title = title
-        }
-      } catch (error) {
-        console.error('Failed to rename session:', error)
-        throw error
-      }
-    },
-
-    async deleteSession(id: string) {
-      try {
-        await chatApi.deleteSession(id)
-        const index = this.sessions.findIndex(s => s.id === id)
-        if (index !== -1) {
-          this.sessions.splice(index, 1)
-        }
-        if (this.currentSessionId === id) {
-          this.currentSessionId = this.sessions[0]?.id || null
-        }
-      } catch (error) {
-        console.error('Failed to delete session:', error)
-        throw error
-      }
-    },
-
-    async sendMessage(message: Message) {
-      if (!this.currentSessionId) return
-
-      try {
-        const session = this.sessions.find(s => s.id === this.currentSessionId)
-        if (!session) return
-
-        // 添加用户消息
-        session.messages.push({
-          ...message,
-          status: 'sending'
-        })
-
-        // 发送到服务器并等待回复
-        const response = await chatApi.sendMessage(this.currentSessionId, message)
-
-        // 更新消息状态
-        const msgIndex = session.messages.findIndex(m => m.id === message.id)
-        if (msgIndex !== -1) {
-          session.messages[msgIndex].status = 'sent'
-        }
-
-        // 添加助手回复
-        session.messages.push(response)
-      } catch (error) {
-        console.error('Failed to send message:', error)
-        // 更新消息状态为错误
-        const session = this.sessions.find(s => s.id === this.currentSessionId)
-        if (session) {
-          const msgIndex = session.messages.findIndex(m => m.id === message.id)
-          if (msgIndex !== -1) {
-            session.messages[msgIndex].status = 'error'
-          }
-        }
-        throw error
-      }
-    },
-
-    async retryMessage(message: Message) {
-      if (!this.currentSessionId) return
-
-      try {
-        const session = this.sessions.find(s => s.id === this.currentSessionId)
-        if (!session) return
-
-        // 更新消息状态
-        const msgIndex = session.messages.findIndex(m => m.id === message.id)
-        if (msgIndex !== -1) {
-          session.messages[msgIndex].status = 'sending'
-        }
-
-        // 重新发送消息
-        const response = await chatApi.sendMessage(this.currentSessionId, message)
-
-        // 更新消息状态
-        if (msgIndex !== -1) {
-          session.messages[msgIndex].status = 'sent'
-        }
-
-        // 添加助手回复
-        session.messages.push(response)
-      } catch (error) {
-        console.error('Failed to retry message:', error)
-        throw error
-      }
-    },
-
-    async updateSessionSettings(id: string, settings: any) {
-      try {
-        await chatApi.updateSession(id, settings)
-        const session = this.sessions.find(s => s.id === id)
-        if (session) {
-          Object.assign(session, settings)
-        }
-      } catch (error) {
-        console.error('Failed to update session settings:', error)
-        throw error
-      }
+    } catch (err) {
+      error.value = '加载会话列表失败'
+      ElMessage.error('加载会话列表失败')
+    } finally {
+      loading.value = false
     }
+  }
+
+  const createNewSession = async () => {
+    try {
+      loading.value = true
+      const response = await createSession()
+      const newSession = response.data
+      sessions.value.unshift(newSession)
+      await setCurrentSession(newSession)
+    } catch (err) {
+      error.value = '创建新会话失败'
+      ElMessage.error('创建新会话失败')
+    } finally {
+      loading.value = false
+    }
+  }
+
+  const setCurrentSession = async (session: Session) => {
+    try {
+      loading.value = true
+      currentSession.value = session
+      messages.value = []
+      const response = await getMessages(session.id)
+      messages.value = response.data
+    } catch (err) {
+      error.value = '加载会话消息失败'
+      ElMessage.error('加载会话消息失败')
+      currentSession.value = null
+    } finally {
+      loading.value = false
+    }
+  }
+
+  const sendUserMessage = async (content: string) => {
+    if (!currentSession.value) {
+      ElMessage.warning('请先选择或创建一个会话')
+      return
+    }
+
+    loading.value = true
+    error.value = ''
+
+    try {
+      // 添加用户消息到列表
+      const userMessage: Message = {
+        id: Date.now().toString(),
+        session_id: currentSession.value.id,
+        content,
+        role: 'user',
+        created_at: new Date().toISOString()
+      }
+      messages.value.push(userMessage)
+
+      // 发送消息到后端
+      const response = await sendMessage(currentSession.value.id, content)
+      const assistantMessage = response.data
+
+      // 添加助手回复到列表
+      messages.value.push(assistantMessage)
+    } catch (err) {
+      error.value = '发送消息失败'
+      ElMessage.error('发送消息失败')
+      // 移除临时添加的用户消息
+      messages.value.pop()
+    } finally {
+      loading.value = false
+    }
+  }
+
+  const clearError = () => {
+    error.value = ''
+  }
+
+  return {
+    // 状态
+    sessions,
+    currentSession,
+    messages,
+    loading,
+    error,
+    // 方法
+    loadSessions,
+    createNewSession,
+    setCurrentSession,
+    sendUserMessage,
+    clearError
   }
 })

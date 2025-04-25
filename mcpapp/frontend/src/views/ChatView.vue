@@ -1,301 +1,242 @@
 <template>
   <div class="chat-container">
     <el-container>
-      <el-aside width="300px">
-        <ChatSessionList
-          :sessions="sessions"
-          :active-session-id="currentSessionId"
-          @new-session="handleNewSession"
-          @select-session="handleSelectSession"
-          @rename-session="handleRenameSession"
-          @export-session="handleExportSession"
-          @delete-session="handleDeleteSession"
-        />
-      </el-aside>
-      <el-main>
-        <div v-if="currentSession" class="chat-main">
-          <div class="chat-header">
-            <h2>{{ currentSession.title }}</h2>
-            <div class="header-actions">
-              <el-button
-                :icon="Refresh"
-                circle
-                @click="handleRefresh"
-              />
-              <el-button
-                :icon="Setting"
-                circle
-                @click="showSettings = true"
-              />
-            </div>
-          </div>
-          <div class="chat-messages" ref="messagesRef">
-            <el-scrollbar>
-              <div class="messages-container">
-                <ChatMessage
-                  v-for="message in currentSession.messages"
-                  :key="message.id"
-                  :message="message"
-                  @retry="handleRetry"
-                />
-              </div>
-            </el-scrollbar>
-          </div>
-          <ChatInput
-            :sending="sending"
-            :tools="availableTools"
-            placeholder="输入消息，Shift + Enter换行"
-            @send="handleSend"
-            @upload="handleUpload"
-            @use-tool="handleUseTool"
-          />
-        </div>
-        <div v-else class="empty-state">
-          <el-empty description="选择或创建一个会话开始聊天" />
-          <el-button type="primary" @click="handleNewSession">
+      <el-aside width="250px">
+        <div class="session-list">
+          <el-button type="primary" class="new-chat" @click="handleNewSession">
             新建会话
           </el-button>
+          <el-scrollbar>
+            <el-menu :default-active="currentSession?.id.toString()">
+              <el-menu-item 
+                v-for="session in sessions" 
+                :key="session.id" 
+                :index="session.id.toString()"
+                @click="handleSelectSession(session)"
+              >
+                <el-icon><ChatLineRound /></el-icon>
+                <span>{{ session.title || '新的会话' }}</span>
+                <span class="session-time">{{ formatTime(session.created_at) }}</span>
+              </el-menu-item>
+            </el-menu>
+          </el-scrollbar>
         </div>
-      </el-main>
+      </el-aside>
+      
+      <el-container>
+        <el-main>
+          <div class="chat-main">
+            <div class="chat-messages" ref="messagesContainer">
+              <el-scrollbar>
+                <div class="message-list">
+                  <div 
+                    v-for="message in messages" 
+                    :key="message.id"
+                    :class="['message', message.role]"
+                  >
+                    <div class="message-content">
+                      {{ message.content }}
+                    </div>
+                    <div class="message-meta">
+                      {{ formatTime(message.created_at) }}
+                    </div>
+                  </div>
+                </div>
+              </el-scrollbar>
+            </div>
+            
+            <div class="chat-input">
+              <el-input
+                v-model="messageInput"
+                type="textarea"
+                :rows="3"
+                placeholder="输入消息..."
+                :disabled="!currentSession || loading"
+                @keydown.enter.prevent="handleSendMessage"
+              />
+              <el-button 
+                type="primary" 
+                :loading="loading"
+                :disabled="!currentSession || !messageInput.trim()"
+                @click="handleSendMessage"
+              >
+                发送
+              </el-button>
+            </div>
+          </div>
+        </el-main>
+      </el-container>
     </el-container>
 
-    <!-- 设置对话框 -->
+    <!-- 错误提示 -->
     <el-dialog
-      v-model="showSettings"
-      title="会话设置"
-      width="500px"
+      v-model="showError"
+      title="错误"
+      width="30%"
+      @close="clearError"
     >
-      <el-form label-position="top">
-        <el-form-item label="会话名称">
-          <el-input v-model="sessionTitle" />
-        </el-form-item>
-        <el-form-item label="模型设置">
-          <el-select v-model="modelSettings.temperature" style="width: 100%">
-            <el-option label="更精确" :value="0.3" />
-            <el-option label="平衡" :value="0.7" />
-            <el-option label="更有创造力" :value="1" />
-          </el-select>
-        </el-form-item>
-      </el-form>
+      <span>{{ error }}</span>
       <template #footer>
-        <el-button @click="showSettings = false">取消</el-button>
-        <el-button type="primary" @click="handleSaveSettings">
-          保存
-        </el-button>
+        <span class="dialog-footer">
+          <el-button @click="clearError">确定</el-button>
+        </span>
       </template>
     </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, nextTick } from 'vue'
-import { Refresh, Setting } from '@element-plus/icons-vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import type { ChatSession, Message, MCPTool } from '@/types/chat'
-import ChatSessionList from '@/components/ChatSessionList.vue'
-import ChatMessage from '@/components/ChatMessage.vue'
-import ChatInput from '@/components/ChatInput.vue'
+import { ref, computed, onMounted, nextTick, watch } from 'vue'
+import { ChatLineRound } from '@element-plus/icons-vue'
+import { storeToRefs } from 'pinia'
 import { useChatStore } from '@/stores/chat'
+import type { Session } from '@/types/chat'
+import dayjs from 'dayjs'
 
+// 状态管理
 const chatStore = useChatStore()
-const messagesRef = ref<HTMLElement>()
-const showSettings = ref(false)
-const sending = ref(false)
-const sessionTitle = ref('')
-const modelSettings = ref({
-  temperature: 0.7
+const { sessions, currentSession, messages, loading, error } = storeToRefs(chatStore)
+const messageInput = ref('')
+const messagesContainer = ref<HTMLElement | null>(null)
+
+// 计算属性
+const showError = computed({
+  get: () => Boolean(error.value),
+  set: (value) => {
+    if (!value) {
+      chatStore.clearError()
+    }
+  }
 })
 
-// 从store获取会话列表
-const sessions = computed(() => chatStore.sessions)
-const currentSessionId = computed(() => chatStore.currentSessionId)
-const currentSession = computed(() => 
-  sessions.value.find(s => s.id === currentSessionId.value)
-)
-const availableTools = computed(() => chatStore.availableTools)
+// 方法
+const handleNewSession = () => {
+  chatStore.createNewSession()
+}
+
+const handleSelectSession = (session: Session) => {
+  chatStore.setCurrentSession(session)
+}
+
+const handleSendMessage = async () => {
+  if (!messageInput.value.trim()) return
+  
+  const content = messageInput.value
+  messageInput.value = ''
+  
+  await chatStore.sendUserMessage(content)
+  scrollToBottom()
+}
+
+const formatTime = (time: string) => {
+  return dayjs(time).format('YYYY-MM-DD HH:mm:ss')
+}
+
+const scrollToBottom = async () => {
+  await nextTick()
+  if (messagesContainer.value) {
+    const scrollbar = messagesContainer.value.querySelector('.el-scrollbar__wrap')
+    if (scrollbar) {
+      scrollbar.scrollTop = scrollbar.scrollHeight
+    }
+  }
+}
+
+const clearError = () => {
+  chatStore.clearError()
+}
 
 // 监听消息变化，自动滚动到底部
-watch(
-  () => currentSession.value?.messages,
-  async () => {
-    await nextTick()
-    if (messagesRef.value) {
-      const scrollbar = messagesRef.value.querySelector('.el-scrollbar__wrap')
-      if (scrollbar) {
-        scrollbar.scrollTop = scrollbar.scrollHeight
-      }
-    }
-  },
-  { deep: true }
-)
+watch(() => messages.value.length, scrollToBottom)
 
-// 处理会话相关操作
-const handleNewSession = () => {
-  chatStore.createSession()
-}
-
-const handleSelectSession = (id: string) => {
-  chatStore.setCurrentSession(id)
-}
-
-const handleRenameSession = async (id: string) => {
-  try {
-    const { value: newTitle } = await ElMessageBox.prompt(
-      '请输入新的会话名称',
-      '重命名会话',
-      {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
-        inputValue: currentSession.value?.title
-      }
-    )
-    if (newTitle) {
-      chatStore.renameSession(id, newTitle)
-    }
-  } catch {}
-}
-
-const handleExportSession = (id: string) => {
-  const session = sessions.value.find(s => s.id === id)
-  if (!session) return
-  
-  const content = JSON.stringify(session, null, 2)
-  const blob = new Blob([content], { type: 'application/json' })
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = `${session.title}.json`
-  link.click()
-  URL.revokeObjectURL(url)
-}
-
-const handleDeleteSession = async (id: string) => {
-  try {
-    await ElMessageBox.confirm(
-      '确定要删除这个会话吗？此操作不可恢复。',
-      '删除会话',
-      {
-        type: 'warning'
-      }
-    )
-    chatStore.deleteSession(id)
-  } catch {}
-}
-
-// 处理消息相关操作
-const handleSend = async (content: string) => {
-  if (!currentSessionId.value) return
-  
-  sending.value = true
-  try {
-    await chatStore.sendMessage({
-      id: Date.now().toString(),
-      role: 'user',
-      content,
-      timestamp: new Date().toISOString()
-    })
-  } catch (error) {
-    ElMessage.error('发送消息失败')
-  } finally {
-    sending.value = false
-  }
-}
-
-const handleRetry = async (message: Message) => {
-  if (!currentSessionId.value) return
-  
-  sending.value = true
-  try {
-    await chatStore.retryMessage(message)
-  } catch (error) {
-    ElMessage.error('重试失败')
-  } finally {
-    sending.value = false
-  }
-}
-
-const handleUpload = () => {
-  // 实现文件上传逻辑
-}
-
-const handleUseTool = (tool: MCPTool) => {
-  // 实现工具使用逻辑
-}
-
-const handleRefresh = () => {
-  // 实现刷新逻辑
-}
-
-const handleSaveSettings = () => {
-  if (!currentSessionId.value) return
-  
-  chatStore.updateSessionSettings(currentSessionId.value, {
-    title: sessionTitle.value,
-    modelSettings: modelSettings.value
-  })
-  showSettings.value = false
-}
-
-// 监听设置对话框的显示状态
-watch(showSettings, (visible) => {
-  if (visible && currentSession.value) {
-    sessionTitle.value = currentSession.value.title
-    // 加载其他设置
-  }
+// 生命周期
+onMounted(() => {
+  chatStore.loadSessions()
 })
 </script>
 
-<style scoped lang="scss">
+<style scoped>
 .chat-container {
-  height: 100vh;
-  
-  :deep(.el-container) {
-    height: 100%;
-  }
-  
-  .el-aside {
-    border-right: 1px solid var(--el-border-color);
-  }
-  
-  .chat-main {
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-    
-    .chat-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 1rem;
-      border-bottom: 1px solid var(--el-border-color);
-      
-      h2 {
-        margin: 0;
-      }
-      
-      .header-actions {
-        display: flex;
-        gap: 0.5rem;
-      }
-    }
-    
-    .chat-messages {
-      flex-grow: 1;
-      overflow: hidden;
-      
-      .messages-container {
-        padding: 1rem;
-      }
-    }
-  }
-  
-  .empty-state {
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-    gap: 2rem;
-  }
+  height: 100%;
+}
+
+.el-container {
+  height: 100%;
+}
+
+.el-aside {
+  background-color: #f5f7fa;
+  border-right: 1px solid #e6e6e6;
+}
+
+.session-list {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.new-chat {
+  margin: 16px;
+}
+
+.chat-main {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.chat-messages {
+  flex: 1;
+  overflow: hidden;
+  padding: 20px;
+}
+
+.message-list {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.message {
+  max-width: 80%;
+  padding: 12px;
+  border-radius: 8px;
+}
+
+.message.user {
+  align-self: flex-end;
+  background-color: #e6f7ff;
+}
+
+.message.assistant {
+  align-self: flex-start;
+  background-color: #f5f7fa;
+}
+
+.message.system {
+  align-self: center;
+  background-color: #fff0f0;
+  font-style: italic;
+}
+
+.message-content {
+  word-break: break-word;
+}
+
+.message-meta {
+  font-size: 12px;
+  color: #999;
+  margin-top: 4px;
+}
+
+.chat-input {
+  padding: 20px;
+  border-top: 1px solid #e6e6e6;
+  display: flex;
+  gap: 16px;
+}
+
+.chat-input .el-input {
+  flex: 1;
 }
 </style>

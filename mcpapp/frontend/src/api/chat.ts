@@ -1,42 +1,28 @@
-import type { ChatSession, Message, MCPTool } from '@/types/chat'
-import axios from 'axios'
+import request from '@/utils/request'
+import type { Session, Message } from '@/types/chat'
 
-const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || '/api/v1',
-  timeout: 30000,
-  headers: {
-    'Content-Type': 'application/json'
-  }
-})
+const baseUrl = '/api/v1'
 
-export const chatApi = {
-  async getSessions(): Promise<ChatSession[]> {
-    const response = await api.get('/chat/sessions')
-    return response.data
-  },
+// 获取会话列表
+export const getSessions = () => {
+  return request.get<Session[]>(`${baseUrl}/chat/sessions`)
+}
 
-  async createSession(): Promise<ChatSession> {
-    const response = await api.post('/chat/sessions', {
-      title: '新会话'
-    })
-    return response.data
-  },
+// 创建新会话
+export const createSession = () => {
+  return request.post<Session>(`${baseUrl}/chat/sessions`, {
+    title: '新的会话'
+  })
+}
 
-  async updateSession(id: string, data: Partial<ChatSession>): Promise<void> {
-    await api.patch(`/chat/sessions/${id}`, data)
-  },
+// 获取会话消息列表
+export const getMessages = (sessionId: number) => {
+  return request.get<Message[]>(`${baseUrl}/chat/sessions/${sessionId}/messages`)
+}
 
-  async deleteSession(id: string): Promise<void> {
-    await api.delete(`/chat/sessions/${id}`)
-  },
-
-  async sendMessage(sessionId: string, message: Message): Promise<Message> {
-    const response = await api.post(`/chat/sessions/${sessionId}/messages`, message)
-    return response.data
-  },
-
-  async getAvailableTools(): Promise<MCPTool[]> {
-    const response = await api.get('/mcp/tools')
-    return response.data
-  }
+// 发送消息
+export const sendMessage = (sessionId: number, content: string) => {
+  return request.post<Message>(`${baseUrl}/chat/sessions/${sessionId}/messages`, {
+    content
+  })
 }
