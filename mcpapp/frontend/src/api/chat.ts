@@ -1,28 +1,43 @@
+import type { Session, Message, CreateSessionRequest, SendMessageRequest } from '@/types/chat'
 import request from '@/utils/request'
-import type { Session, Message } from '@/types/chat'
 
-const baseUrl = '/api/v1'
+const baseUrl = '/api/v1/chat'
 
-// 获取会话列表
-export const getSessions = () => {
-  return request.get<Session[]>(`${baseUrl}/chat/sessions`)
+export const chatApi = {
+  // 获取会话列表
+  getSessions(): Promise<Session[]> {
+    return request.get(`${baseUrl}/sessions`)
+  },
+
+  // 创建新会话
+  createSession(data: CreateSessionRequest): Promise<Session> {
+    return request.post(`${baseUrl}/sessions`, data)
+  },
+
+  // 重命名会话
+  renameSession(sessionId: number, sessionName: string): Promise<Session> {
+    return request.put(`${baseUrl}/sessions/${sessionId}`, { session_name: sessionName })
+  },
+
+  // 删除会话
+  deleteSession(sessionId: number): Promise<void> {
+    return request.delete(`${baseUrl}/sessions/${sessionId}`)
+  },
+
+  // 获取会话消息
+  getMessages(sessionId: number): Promise<Message[]> {
+    return request.get(`${baseUrl}/sessions/${sessionId}/messages`)
+  },
+
+  // 发送消息
+  sendMessage(sessionId: number, data: SendMessageRequest): Promise<Message> {
+    return request.post(`${baseUrl}/sessions/${sessionId}/messages`, data)
+  }
 }
 
-// 创建新会话
-export const createSession = () => {
-  return request.post<Session>(`${baseUrl}/chat/sessions`, {
-    title: '新的会话'
+export const exportSession = async (sessionId: number): Promise<Blob> => {
+  const response = await request.get(`${baseUrl}/sessions/${sessionId}/export`, {
+    responseType: 'blob'
   })
-}
-
-// 获取会话消息列表
-export const getMessages = (sessionId: number) => {
-  return request.get<Message[]>(`${baseUrl}/chat/sessions/${sessionId}/messages`)
-}
-
-// 发送消息
-export const sendMessage = (sessionId: number, content: string) => {
-  return request.post<Message>(`${baseUrl}/chat/sessions/${sessionId}/messages`, {
-    content
-  })
+  return response.data
 }

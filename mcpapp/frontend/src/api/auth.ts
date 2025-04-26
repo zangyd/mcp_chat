@@ -17,7 +17,10 @@ export interface UserInfo {
 
 // 用户登录
 export const login = (data: LoginData) => {
-  return request.post<TokenResponse>('/api/v1/auth/login', data)
+  const formData = new FormData()
+  formData.append('username', data.email)
+  formData.append('password', data.password)
+  return request.post<TokenResponse>('/api/v1/auth/login', formData)
 }
 
 // 获取当前用户信息

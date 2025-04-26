@@ -2,16 +2,19 @@ export interface Session {
   id: number
   user_id: number
   title: string
-  session_data?: any
+  session_data?: Record<string, any>
+  last_message?: string | null
+  message_count?: number
   created_at: string
-  updated_at: string
+  updated_at?: string
 }
 
 export interface Message {
-  id: string
+  id: number
   session_id: number
+  message_type: 'user' | 'assistant' | 'system'
   content: string
-  role: 'user' | 'assistant' | 'system'
+  message_metadata?: Record<string, any>
   created_at: string
 }
 
@@ -19,7 +22,6 @@ export interface ChatState {
   sessions: Session[]
   currentSession: Session | null
   messages: Message[]
-  loading: boolean
   error: string | null
 }
 
@@ -55,4 +57,13 @@ export interface PaginatedResponse<T> {
   items: T[]
   page: number
   pageSize: number
+}
+
+export interface CreateSessionRequest {
+  title: string
+}
+
+export interface SendMessageRequest {
+  content: string
+  metadata?: Record<string, any>
 }

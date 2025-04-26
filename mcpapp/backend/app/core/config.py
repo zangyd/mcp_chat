@@ -54,7 +54,7 @@ class Settings(BaseSettings):
 2. 给出准确和有帮助的回答
 3. 如果不确定，诚实地表示不知道
 4. 避免有害或不当的内容
-5. 尊重用户的隐私
+5. 请一步一步思考
 """
 
     class Config:

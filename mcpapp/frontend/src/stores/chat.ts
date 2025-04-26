@@ -1,117 +1,143 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
-import type { Session, Message } from '@/types/chat'
-import { ElMessage } from 'element-plus'
-import { createSession, getSessions, getMessages, sendMessage } from '@/api/chat'
+import type { Session, Message, ChatState, CreateSessionRequest, SendMessageRequest } from '@/types/chat'
+import { chatApi } from '@/api/chat'
+import { ElMessageBox } from 'element-plus'
 
-export const useChatStore = defineStore('chat', () => {
-  // 状态
-  const sessions = ref<Session[]>([])
-  const currentSession = ref<Session | null>(null)
-  const messages = ref<Message[]>([])
-  const loading = ref(false)
-  const error = ref('')
+export const useChatStore = defineStore('chat', {
+  state: (): ChatState => ({
+    sessions: [],
+    currentSession: null,
+    messages: [],
+    error: null,
+    loading: false
+  }),
 
-  // 方法
-  const loadSessions = async () => {
-    try {
-      loading.value = true
-      const response = await getSessions()
-      sessions.value = response.data
-      if (sessions.value.length > 0) {
-        await setCurrentSession(sessions.value[0])
+  getters: {
+    currentMessages: (state): Message[] => state.messages,
+    hasError: (state): boolean => state.error !== null
+  },
+
+  actions: {
+    // 加载会话列表
+    async loadSessions() {
+      this.loading = true
+      try {
+        const sessions = await chatApi.getSessions()
+        this.sessions = sessions
+        if (sessions.length > 0 && !this.currentSession) {
+          this.currentSession = sessions[0]
+          await this.loadMessages(sessions[0].id)
+        }
+        this.error = null
+      } catch (error) {
+        this.error = error instanceof Error ? error.message : '加载会话失败'
+      } finally {
+        this.loading = false
       }
-    } catch (err) {
-      error.value = '加载会话列表失败'
-      ElMessage.error('加载会话列表失败')
-    } finally {
-      loading.value = false
-    }
-  }
+    },
 
-  const createNewSession = async () => {
-    try {
-      loading.value = true
-      const response = await createSession()
-      const newSession = response.data
-      sessions.value.unshift(newSession)
-      await setCurrentSession(newSession)
-    } catch (err) {
-      error.value = '创建新会话失败'
-      ElMessage.error('创建新会话失败')
-    } finally {
-      loading.value = false
-    }
-  }
-
-  const setCurrentSession = async (session: Session) => {
-    try {
-      loading.value = true
-      currentSession.value = session
-      messages.value = []
-      const response = await getMessages(session.id)
-      messages.value = response.data
-    } catch (err) {
-      error.value = '加载会话消息失败'
-      ElMessage.error('加载会话消息失败')
-      currentSession.value = null
-    } finally {
-      loading.value = false
-    }
-  }
-
-  const sendUserMessage = async (content: string) => {
-    if (!currentSession.value) {
-      ElMessage.warning('请先选择或创建一个会话')
-      return
-    }
-
-    loading.value = true
-    error.value = ''
-
-    try {
-      // 添加用户消息到列表
-      const userMessage: Message = {
-        id: Date.now().toString(),
-        session_id: currentSession.value.id,
-        content,
-        role: 'user',
-        created_at: new Date().toISOString()
+    // 创建新会话
+    async createNewSession() {
+      this.loading = true
+      try {
+        const session = await chatApi.createSession({
+          title: '新的会话'
+        })
+        this.sessions.push(session)
+        this.currentSession = session
+        this.messages = []
+        this.error = null
+      } catch (error) {
+        this.error = error instanceof Error ? error.message : '创建会话失败'
+      } finally {
+        this.loading = false
       }
-      messages.value.push(userMessage)
+    },
 
-      // 发送消息到后端
-      const response = await sendMessage(currentSession.value.id, content)
-      const assistantMessage = response.data
+    // 设置当前会话
+    async setCurrentSession(session: Session) {
+      this.loading = true
+      try {
+        this.currentSession = session
+        await this.loadMessages(session.id)
+        this.error = null
+      } catch (error) {
+        this.error = error instanceof Error ? error.message : '切换会话失败'
+      } finally {
+        this.loading = false
+      }
+    },
 
-      // 添加助手回复到列表
-      messages.value.push(assistantMessage)
-    } catch (err) {
-      error.value = '发送消息失败'
-      ElMessage.error('发送消息失败')
-      // 移除临时添加的用户消息
-      messages.value.pop()
-    } finally {
-      loading.value = false
+    // 加载会话消息
+    async loadMessages(sessionId: number) {
+      this.loading = true
+      try {
+        const messages = await chatApi.getMessages(sessionId)
+        this.messages = messages
+        this.error = null
+      } catch (error) {
+        this.error = error instanceof Error ? error.message : '加载消息失败'
+      } finally {
+        this.loading = false
+      }
+    },
+
+    // 发送用户消息
+    async sendUserMessage(content: string) {
+      if (!this.currentSession) return
+      
+      this.loading = true
+      try {
+        const messages = await chatApi.sendMessage(this.currentSession.id, { content })
+        // 将返回的消息列表添加到当前消息列表中
+        this.messages.push(...messages)
+        this.error = null
+      } catch (error) {
+        this.error = error instanceof Error ? error.message : '发送消息失败'
+      } finally {
+        this.loading = false
+      }
+    },
+
+    // 删除会话
+    async deleteSession(sessionId: number) {
+      try {
+        // 弹出确认框
+        await ElMessageBox.confirm('确定要删除这个会话吗？', '提示', {
+          confirmButtonText: '确定',
+          cancelButtonText: '取消',
+          type: 'warning'
+        })
+
+        this.loading = true
+        await chatApi.deleteSession(sessionId)
+        
+        // 从列表中移除
+        this.sessions = this.sessions.filter(s => s.id !== sessionId)
+        
+        // 如果删除的是当前会话，切换到第一个会话
+        if (this.currentSession?.id === sessionId) {
+          if (this.sessions.length > 0) {
+            await this.setCurrentSession(this.sessions[0])
+          } else {
+            this.currentSession = null
+            this.messages = []
+          }
+        }
+        
+        this.error = null
+      } catch (error) {
+        if (error !== 'cancel') {
+          this.error = error instanceof Error ? error.message : '删除会话失败'
+        }
+      } finally {
+        this.loading = false
+      }
+    },
+
+    // 清除错误
+    clearError() {
+      this.error = null
     }
-  }
-
-  const clearError = () => {
-    error.value = ''
-  }
-
-  return {
-    // 状态
-    sessions,
-    currentSession,
-    messages,
-    loading,
-    error,
-    // 方法
-    loadSessions,
-    createNewSession,
-    setCurrentSession,
-    sendUserMessage,
-    clearError
   }
 })

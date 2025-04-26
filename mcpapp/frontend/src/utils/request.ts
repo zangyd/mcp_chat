@@ -6,8 +6,9 @@ import { useAuthStore } from '@/stores/auth'
 
 // 创建axios实例
 const service: AxiosInstance = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || '/',
-  timeout: 15000
+  baseURL: '/',  // 修改baseURL，因为Vite已经配置了/api前缀
+  timeout: 15000,
+  withCredentials: true
 })
 
 // 请求拦截器
@@ -18,10 +19,23 @@ service.interceptors.request.use(
     if (authStore.token) {
       config.headers.Authorization = `Bearer ${authStore.token}`
     }
+    
+    // 如果是FormData，让浏览器自动设置Content-Type
+    if (config.data instanceof FormData) {
+      delete config.headers['Content-Type']
+    }
+    
+    // 调试信息
+    console.log('Request Config:', {
+      url: config.url,
+      method: config.method,
+      headers: config.headers,
+      data: config.data
+    })
     return config
   },
   (error) => {
-    console.error('请求错误:', error)
+    console.error('Request Error:', error)
     return Promise.reject(error)
   }
 )
@@ -29,10 +43,14 @@ service.interceptors.request.use(
 // 响应拦截器
 service.interceptors.response.use(
   (response) => {
+    // 调试信息
+    console.log('Response Data:', response.data)
     return response.data
   },
   (error) => {
-    console.error('响应错误:', error)
+    console.error('Response Error:', error)
+    console.error('Error Config:', error.config)
+    console.error('Error Response:', error.response)
     
     if (error.response) {
       switch (error.response.status) {
@@ -62,8 +80,10 @@ service.interceptors.response.use(
         default:
           ElMessage.error(error.response.data?.detail || '请求失败')
       }
-    } else {
+    } else if (error.request) {
       ElMessage.error('网络错误，请检查网络连接')
+    } else {
+      ElMessage.error('请求配置错误')
     }
     
     return Promise.reject(error)
